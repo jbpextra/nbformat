@@ -9,5 +9,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    with:
+      project_install_command: python -m pip install -e ".[test]"
     secrets:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
