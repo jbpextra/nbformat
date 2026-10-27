@@ -8,4 +8,4 @@ smell_filter:
   include_severities:
     - "High"
     - "Medium"
-max_proposal_limit: 1
+max_proposal_limit: 2
