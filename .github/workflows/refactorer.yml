@@ -1,0 +1,13 @@
+name: RefactorerLM
+
+on:
+  workflow_dispatch:
+
+jobs:
+  refactor:
+    uses: jbpextra/RefactorerLM/.github/workflows/refactorer.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

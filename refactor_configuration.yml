@@ -1,0 +1,11 @@
+# Analyze from the repository root to preserve package imports and test discovery.
+target_directory: "."
+smell_filter:
+  filter_enabled: true
+  include_names:
+    - "Cyclic Dependency"
+    - "Potential Redundant Abstractions"
+  include_severities:
+    - "High"
+    - "Medium"
+max_proposal_limit: 1
