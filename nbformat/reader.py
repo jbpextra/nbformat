@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 
-from .validator import ValidationError
+from .json_compat import ValidationError
 
 
 class NotJSONError(ValueError):
