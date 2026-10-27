@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from ._imports import import_item
+from ._utils import get_version
 from .corpus.words import generate_corpus_id
 from .json_compat import ValidationError, _validator_for_name, get_current_validator
-from .reader import get_version
 from .warnings import DuplicateCellId, MissingIDFieldWarning
 
 validators: dict[tuple[str, int | None, int | None, bool], Any] = {}
@@ -37,9 +37,7 @@ def _relax_additional_properties(obj):
     """relax any `additionalProperties`"""
     if isinstance(obj, dict):
         for key, value in obj.items():
-            value = (  # noqa: PLW2901
-                True if key == "additionalProperties" else _relax_additional_properties(value)
-            )
+            value = True if key == "additionalProperties" else _relax_additional_properties(value)
             obj[key] = value
     elif isinstance(obj, list):
         for i, value in enumerate(obj):
@@ -66,9 +64,6 @@ def get_validator(version=None, version_minor=None, relax_add_props=False, name=
         version_minor = current_minor
 
     current_validator = _validator_for_name(name) if name else get_current_validator()
-
-    # `relax_add_props` is part of the key: it produces a different schema, so a
-    # relaxed validator must not be handed out to callers asking for a strict one.
     version_tuple = (current_validator.name, version, version_minor, relax_add_props)
 
     if version_tuple not in validators:
@@ -78,14 +73,10 @@ def get_validator(version=None, version_minor=None, relax_add_props=False, name=
             return None
 
         if current_minor < version_minor:
-            # notebook from the future, relax all `additionalProperties: False` requirements
             schema_json = _relax_additional_properties(schema_json)
-            # and allow undefined cell types and outputs
             schema_json = _allow_undefined(schema_json)
 
         if relax_add_props:
-            # this allows properties to be added for intermediate
-            # representations while validating for all other kinds of errors
             schema_json = _relax_additional_properties(schema_json)
 
         validators[version_tuple] = current_validator(schema_json)
@@ -94,30 +85,19 @@ def get_validator(version=None, version_minor=None, relax_add_props=False, name=
 
 
 def _get_schema_json(v, version=None, version_minor=None):
-    """
-    Gets the json schema from a given imported library and nbformat version.
-    """
+    """Gets the json schema from a given imported library and nbformat version."""
     if (version, version_minor) in v.nbformat_schema:
         schema_path = str(Path(v.__file__).parent / v.nbformat_schema[(version, version_minor)])
     elif version_minor > v.nbformat_minor:
-        # load the latest schema
         schema_path = str(Path(v.__file__).parent / v.nbformat_schema[(None, None)])
     else:
-        msg = "Cannot find appropriate nbformat schema file."
-        raise AttributeError(msg)
+        raise AttributeError("Cannot find appropriate nbformat schema file.")
     with Path(schema_path).open(encoding="utf8") as f:
-        schema_json = json.load(f)
-    return schema_json  # noqa: RET504
+        return json.load(f)
 
 
 def isvalid(nbjson, ref=None, version=None, version_minor=None):
-    """Checks whether the given notebook JSON conforms to the current
-    notebook format schema. Returns True if the JSON is valid, and
-    False otherwise.
-
-    To see the individual errors that were encountered, please use the
-    `validate` function instead.
-    """
+    """Checks whether the given notebook JSON conforms to the current notebook format schema."""
     orig = deepcopy(nbjson)
     try:
         with warnings.catch_warnings():
@@ -133,14 +113,7 @@ def isvalid(nbjson, ref=None, version=None, version_minor=None):
 
 
 def _format_as_index(indices):
-    """
-    (from jsonschema._utils.format_as_index, copied to avoid relying on private API)
-
-    Construct a single string containing indexing operations for the indices.
-
-    For example, [1, 2, "foo"] -> [1][2]["foo"]
-    """
-
+    """Construct indexing operations for indices."""
     if not indices:
         return ""
     return "[%s]" % "][".join(repr(index) for index in indices)
@@ -151,17 +124,13 @@ _STR_LIMIT = 64
 
 
 def _truncate_obj(obj):
-    """Truncate objects for use in validation tracebacks
-
-    Cell and output lists are squashed, as are long strings, lists, and dicts.
-    """
+    """Truncate objects for use in validation tracebacks."""
     if isinstance(obj, dict):
         truncated_dict = {k: _truncate_obj(v) for k, v in list(obj.items())[:_ITEM_LIMIT]}
         if isinstance(truncated_dict.get("cells"), list):
             truncated_dict["cells"] = ["...%i cells..." % len(obj["cells"])]
         if isinstance(truncated_dict.get("outputs"), list):
             truncated_dict["outputs"] = ["...%i outputs..." % len(obj["outputs"])]
-
         if len(obj) > _ITEM_LIMIT:
             truncated_dict["..."] = "%i keys truncated" % (len(obj) - _ITEM_LIMIT)
         return truncated_dict
@@ -178,30 +147,20 @@ def _truncate_obj(obj):
     return obj
 
 
-class NotebookValidationError(ValidationError):  # type:ignore[misc]
-    """Schema ValidationError with truncated representation
-
-    to avoid massive verbose tracebacks.
-    """
+class NotebookValidationError(ValidationError):
+    """Schema ValidationError with truncated representation."""
 
     def __init__(self, original, ref=None):
-        """Initialize the error class."""
         self.original = original
         self.ref = getattr(self.original, "ref", ref)
         self.message = self.original.message
 
     def __getattr__(self, key):
-        """Get an attribute from the error."""
         return getattr(self.original, key)
 
     def __unicode__(self):
-        """Custom str for validation errors
-
-        avoids dumping full schema and notebook to logs
-        """
         error = self.original
         instance = _truncate_obj(error.instance)
-
         return "\n".join(
             [
                 error.message,
@@ -221,12 +180,7 @@ class NotebookValidationError(ValidationError):  # type:ignore[misc]
 
 
 def better_validation_error(error, version, version_minor):
-    """Get better ValidationError on oneOf failures
-
-    oneOf errors aren't informative.
-    if it's a cell type or output_type error,
-    try validating directly based on the type for a better error message
-    """
+    """Get better ValidationError on oneOf failures."""
     if not len(error.schema_path):
         return error
     key = error.schema_path[-1]
@@ -237,17 +191,10 @@ def better_validation_error(error, version, version_minor):
                 ref = error.instance["cell_type"] + "_cell"
             elif "output_type" in error.instance:
                 ref = error.instance["output_type"]
-
         if ref:
             try:
-                validate(
-                    error.instance,
-                    ref,
-                    version=version,
-                    version_minor=version_minor,
-                )
+                validate(error.instance, ref, version=version, version_minor=version_minor)
             except ValidationError as sub_error:
-                # keep extending relative path
                 error.relative_path.extend(sub_error.relative_path)
                 sub_error.relative_path = error.relative_path
                 better = better_validation_error(sub_error, version, version_minor)
@@ -255,395 +202,146 @@ def better_validation_error(error, version, version_minor):
                     better.ref = ref
                 return better
             except Exception:  # noqa: S110, BLE001
-                # if it fails for some reason,
-                # let the original error through
                 pass
     return NotebookValidationError(error, ref)
 
 
-def normalize(
-    nbdict: Any,
-    version: int | None = None,
-    version_minor: int | None = None,
-    *,
-    relax_add_props: bool = False,
-    strip_invalid_metadata: bool = False,
-) -> tuple[int, Any]:
-    """
-    Normalise a notebook prior to validation.
-
-    This tries to implement a couple of normalisation steps to standardise
-    notebooks and make validation easier.
-
-    You should in general not rely on this function and make sure the notebooks
-    that reach nbformat are already in a normal form. If not you likely have a bug,
-    and may have security issues.
-
-    Parameters
-    ----------
-    nbdict : dict
-        notebook document
-    version : int
-    version_minor : int
-    relax_add_props : bool
-        Whether to allow extra property in the Json schema validating the
-        notebook.
-    strip_invalid_metadata : bool
-        Whether to strip metadata that does not exist in the Json schema when
-        validating the notebook.
-
-    Returns
-    -------
-    changes : int
-        number of changes in the notebooks
-    notebook : dict
-        deep-copy of the original object with relevant changes.
-
-    """
+def normalize(nbdict: Any, version: int | None = None, version_minor: int | None = None, *, relax_add_props: bool = False, strip_invalid_metadata: bool = False) -> tuple[int, Any]:
+    """Normalise a notebook prior to validation."""
     nbdict = deepcopy(nbdict)
     nbdict_version, nbdict_version_minor = get_version(nbdict)
     if version is None:
         version = nbdict_version
     if version_minor is None:
         version_minor = nbdict_version_minor
-    return _normalize(
-        nbdict,
-        version,
-        version_minor,
-        True,
-        relax_add_props=relax_add_props,
-        strip_invalid_metadata=strip_invalid_metadata,
-    )
+    return _normalize(nbdict, version, version_minor, True, relax_add_props=relax_add_props, strip_invalid_metadata=strip_invalid_metadata)
 
 
-def _normalize(
-    nbdict: Any,
-    version: int,
-    version_minor: int,
-    repair_duplicate_cell_ids: bool,
-    relax_add_props: bool,
-    strip_invalid_metadata: bool,
-) -> tuple[int, Any]:
-    """
-    Private normalisation routine.
-
-    This function attempts to normalize the `nbdict` passed to it.
-
-    As `_normalize()` is currently used both in `validate()` (for
-    historical reasons), and in the `normalize()` public function,
-    `_normalize()` does currently mutate `nbdict`.
-    Ideally, once `validate()` stops calling `_normalize()`, `_normalize()`
-    may stop mutating `nbdict`.
-
-    """
+def _normalize(nbdict: Any, version: int, version_minor: int, repair_duplicate_cell_ids: bool, relax_add_props: bool, strip_invalid_metadata: bool) -> tuple[int, Any]:
+    """Private normalisation routine."""
     changes = 0
-
     if (version, version_minor) >= (4, 5):
-        # if we support cell ids ensure default ids are provided
         for cell in nbdict["cells"]:
             if "id" not in cell:
-                warnings.warn(
-                    "Cell is missing an id field, this will become"
-                    " a hard error in future nbformat versions. You may want"
-                    " to use `normalize()` on your notebooks before validations"
-                    " (available since nbformat 5.1.4). Previous versions of nbformat"
-                    " are fixing this issue transparently, and will stop doing so"
-                    " in the future.",
-                    MissingIDFieldWarning,
-                    stacklevel=3,
-                )
-                # Generate cell ids if any are missing
+                warnings.warn("Cell is missing an id field, this will become a hard error in future nbformat versions. You may want to use `normalize()` on your notebooks before validations (available since nbformat 5.1.4). Previous versions of nbformat are fixing this issue transparently, and will stop doing so in the future.", MissingIDFieldWarning, stacklevel=3)
                 if repair_duplicate_cell_ids:
                     cell["id"] = generate_corpus_id()
                     changes += 1
-
-        # if we support cell ids check for uniqueness when validating the whole notebook
         seen_ids = set()
         for cell in nbdict["cells"]:
             if "id" not in cell:
                 continue
             cell_id = cell["id"]
             if cell_id in seen_ids:
-                # Best effort to repair if we find a duplicate id
                 if repair_duplicate_cell_ids:
                     new_id = generate_corpus_id()
                     cell["id"] = new_id
                     changes += 1
-                    warnings.warn(
-                        f"Non-unique cell id {cell_id!r} detected. Corrected to {new_id!r}.",
-                        DuplicateCellId,
-                        stacklevel=3,
-                    )
+                    warnings.warn(f"Non-unique cell id {cell_id!r} detected. Corrected to {new_id!r}.", DuplicateCellId, stacklevel=3)
                 else:
-                    msg = f"Non-unique cell id '{cell_id}' detected."
-                    raise ValidationError(msg)
+                    raise ValidationError(f"Non-unique cell id '{cell_id}' detected.")
             seen_ids.add(cell_id)
     if strip_invalid_metadata:
-        changes += _strip_invalida_metadata(
-            nbdict, version, version_minor, relax_add_props=relax_add_props
-        )
+        changes += _strip_invalida_metadata(nbdict, version, version_minor, relax_add_props=relax_add_props)
     return changes, nbdict
 
 
-def validate(
-    nbdict: Any = None,
-    ref: str | None = None,
-    version: int | None = None,
-    version_minor: int | None = None,
-    relax_add_props: bool = False,
-    nbjson: Any = None,
-) -> None:
-    """Checks whether the given notebook dict-like object
-    conforms to the relevant notebook format schema.
-
-    Parameters
-    ----------
-    nbdict : dict
-        notebook document
-    ref : optional, str
-        reference to the subset of the schema we want to validate against.
-        for example ``"markdown_cell"``, `"code_cell"` ....
-    version : int
-    version_minor : int
-    relax_add_props : bool
-        Whether to allow extra properties in the JSON schema validating the notebook.
-        When True, all known fields are validated, but unknown fields are ignored.
-    nbjson
-
-    Returns
-    -------
-    None
-
-    Raises
-    ------
-    ValidationError if not valid.
-
-    Notes
-    -----
-    Please explicitly call `normalize` if you need to normalize notebooks.
-    """
-    # backwards compatibility for nbjson argument
-    if nbdict is not None:
-        pass
-    elif nbjson is not None:
+def validate(nbdict: Any = None, ref: str | None = None, version: int | None = None, version_minor: int | None = None, relax_add_props: bool = False, nbjson: Any = None) -> None:
+    """Checks whether the given notebook conforms to its schema."""
+    if nbdict is None and nbjson is not None:
         nbdict = nbjson
-    else:
-        msg = "validate() missing 1 required argument: 'nbdict'"
-        raise TypeError(msg)
-
+    elif nbdict is None:
+        raise TypeError("validate() missing 1 required argument: 'nbdict'")
     _validate(nbdict, ref, version, version_minor, relax_add_props)
 
 
-def _validate(
-    nbdict: Any,
-    ref: str | None = None,
-    version: int | None = None,
-    version_minor: int | None = None,
-    relax_add_props: bool = False,
-    *,
-    repair_duplicate_cell_ids: bool = True,
-    strip_invalid_metadata: bool = False,
-) -> None:
-    """Validate a notebook, with explicit control over normalization behavior.
-
-    Internal callers (`isvalid`, `normalize`) use this helper to set
-    `repair_duplicate_cell_ids` and `strip_invalid_metadata` explicitly; the
-    public `validate` always uses the defaults.
-    """
+def _validate(nbdict: Any, ref: str | None = None, version: int | None = None, version_minor: int | None = None, relax_add_props: bool = False, *, repair_duplicate_cell_ids: bool = True, strip_invalid_metadata: bool = False) -> None:
+    """Validate a notebook, with explicit control over normalization behavior."""
     assert isinstance(ref, str) or ref is None
-
     if ref is None:
-        # if ref is not specified, we have a whole notebook, so we can get the version
         nbdict_version, nbdict_version_minor = get_version(nbdict)
         if version is None:
             version = nbdict_version
         if version_minor is None:
             version_minor = nbdict_version_minor
-    # if ref is specified, and we don't have a version number, assume we're validating against 1.0
     elif version is None:
         version, version_minor = 1, 0
-
     if ref is None:
         assert isinstance(version, int)
         assert isinstance(version_minor, int)
-        _normalize(
-            nbdict,
-            version,
-            version_minor,
-            repair_duplicate_cell_ids,
-            relax_add_props=relax_add_props,
-            strip_invalid_metadata=strip_invalid_metadata,
-        )
-
-    for error in iter_validate(
-        nbdict,
-        ref=ref,
-        version=version,
-        version_minor=version_minor,
-        relax_add_props=relax_add_props,
-        strip_invalid_metadata=strip_invalid_metadata,
-    ):
+        _normalize(nbdict, version, version_minor, repair_duplicate_cell_ids, relax_add_props=relax_add_props, strip_invalid_metadata=strip_invalid_metadata)
+    for error in iter_validate(nbdict, ref=ref, version=version, version_minor=version_minor, relax_add_props=relax_add_props, strip_invalid_metadata=strip_invalid_metadata):
         raise error
 
 
-def _get_errors(
-    nbdict: Any, version: int, version_minor: int, relax_add_props: bool, *args: Any
-) -> Any:
+def _get_errors(nbdict: Any, version: int, version_minor: int, relax_add_props: bool, *args: Any) -> Any:
     validator = get_validator(version, version_minor, relax_add_props=relax_add_props)
     if not validator:
-        msg = f"No schema for validating v{version}.{version_minor} notebooks"
-        raise ValidationError(msg)
-    # Peek at the first error rather than draining the iterator: callers that only
-    # need a verdict (or only the first error) should not pay for a full traversal.
-    # `iter()` once and reuse it, since a backend may hand back a list.
+        raise ValidationError(f"No schema for validating v{version}.{version_minor} notebooks")
     errors = iter(validator.iter_errors(nbdict, *args))
     first = next(errors, None)
     if first is None:
         return iter(())
-    # jsonschema gives the best error messages.
     if validator.name != "jsonschema":
-        validator = get_validator(
-            version=version,
-            version_minor=version_minor,
-            relax_add_props=relax_add_props,
-            name="jsonschema",
-        )
+        validator = get_validator(version=version, version_minor=version_minor, relax_add_props=relax_add_props, name="jsonschema")
         return validator.iter_errors(nbdict, *args)
     return chain((first,), errors)
 
 
-def _strip_invalida_metadata(
-    nbdict: Any, version: int, version_minor: int, relax_add_props: bool
-) -> int:
-    """
-    This function tries to extract metadata errors from the validator and fix
-    them if necessary. This mostly mean stripping unknown keys from metadata
-    fields, or removing metadata fields altogether.
-
-    Parameters
-    ----------
-    nbdict : dict
-        notebook document
-    version : int
-    version_minor : int
-    relax_add_props : bool
-        Whether to allow extra property in the Json schema validating the
-        notebook.
-
-    Returns
-    -------
-    int
-        number of modifications
-
-    """
+def _strip_invalida_metadata(nbdict: Any, version: int, version_minor: int, relax_add_props: bool) -> int:
+    """Strip invalid metadata keys."""
     errors = _get_errors(nbdict, version, version_minor, relax_add_props)
     changes = 0
-    # only the presence of an error matters here, so don't drain the iterator
     if next(iter(errors), None) is not None:
-        # jsonschema gives a better error tree.
-        validator = get_validator(
-            version=version,
-            version_minor=version_minor,
-            relax_add_props=relax_add_props,
-            name="jsonschema",
-        )
+        validator = get_validator(version=version, version_minor=version_minor, relax_add_props=relax_add_props, name="jsonschema")
         if not validator:
-            msg = f"No jsonschema for validating v{version}.{version_minor} notebooks"
-            raise ValidationError(msg)
+            raise ValidationError(f"No jsonschema for validating v{version}.{version_minor} notebooks")
         errors = validator.iter_errors(nbdict)
         error_tree = validator.error_tree(errors)
         if "metadata" in error_tree:
             for key in error_tree["metadata"]:
                 nbdict["metadata"].pop(key, None)
                 changes += 1
-
         if "cells" in error_tree:
             number_of_cells = len(nbdict.get("cells", 0))
             for cell_idx in range(number_of_cells):
-                # Cells don't report individual metadata keys as having failed validation
-                # Instead it reports that it failed to validate against each cell-type definition.
-                # We have to delve into why those definitions failed to uncover which metadata
-                # keys are misbehaving.
                 if "oneOf" in error_tree["cells"][cell_idx].errors:
                     intended_cell_type = nbdict["cells"][cell_idx]["cell_type"]
-                    schemas_by_index = [
-                        ref["$ref"]
-                        for ref in error_tree["cells"][cell_idx].errors["oneOf"].schema["oneOf"]
-                    ]
+                    schemas_by_index = [ref["$ref"] for ref in error_tree["cells"][cell_idx].errors["oneOf"].schema["oneOf"]]
                     cell_type_definition_name = f"#/definitions/{intended_cell_type}_cell"
                     if cell_type_definition_name in schemas_by_index:
                         schema_index = schemas_by_index.index(cell_type_definition_name)
                         for error in error_tree["cells"][cell_idx].errors["oneOf"].context:
                             rel_path = error.relative_path
                             error_for_intended_schema = error.schema_path[0] == schema_index
-                            is_top_level_metadata_key = (
-                                len(rel_path) == 2 and rel_path[0] == "metadata"
-                            )
+                            is_top_level_metadata_key = len(rel_path) == 2 and rel_path[0] == "metadata"
                             if error_for_intended_schema and is_top_level_metadata_key:
                                 nbdict["cells"][cell_idx]["metadata"].pop(rel_path[1], None)
                                 changes += 1
-
     return changes
 
 
-def iter_validate(
-    nbdict=None,
-    ref=None,
-    version=None,
-    version_minor=None,
-    relax_add_props=False,
-    nbjson=None,
-    strip_invalid_metadata=False,
-):
-    """Checks whether the given notebook dict-like object conforms to the
-    relevant notebook format schema.
-
-    Returns a generator of all ValidationErrors if not valid.
-
-    Notes
-    -----
-    To fix: For security reasons, this function should *never* mutate its `nbdict` argument, and
-    should *never* try to validate a mutated or modified version of its notebook.
-
-    """
-    # backwards compatibility for nbjson argument
-    if nbdict is not None:
-        pass
-    elif nbjson is not None:
+def iter_validate(nbdict=None, ref=None, version=None, version_minor=None, relax_add_props=False, nbjson=None, strip_invalid_metadata=False):
+    """Return a generator of validation errors."""
+    if nbdict is None and nbjson is not None:
         nbdict = nbjson
-    else:
-        msg = "iter_validate() missing 1 required argument: 'nbdict'"
-        raise TypeError(msg)
-
+    elif nbdict is None:
+        raise TypeError("iter_validate() missing 1 required argument: 'nbdict'")
     if version is None:
         version, version_minor = get_version(nbdict)
-
     if ref:
         try:
-            errors = _get_errors(
-                nbdict,
-                version,
-                version_minor,
-                relax_add_props,
-                {"$ref": "#/definitions/%s" % ref},
-            )
+            errors = _get_errors(nbdict, version, version_minor, relax_add_props, {"$ref": "#/definitions/%s" % ref})
         except ValidationError as e:
             yield e
             return
-
     else:
         if strip_invalid_metadata:
             _strip_invalida_metadata(nbdict, version, version_minor, relax_add_props)
-
-        # Validate one more time to ensure that us removing metadata
-        # didn't cause another complex validation issue in the schema.
-        # Also to ensure that higher-level errors produced by individual metadata validation
-        # failures are removed.
         try:
             errors = _get_errors(nbdict, version, version_minor, relax_add_props)
         except ValidationError as e:
             yield e
             return
-
     for error in errors:
         yield better_validation_error(error, version, version_minor)
