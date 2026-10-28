@@ -18,8 +18,8 @@ Authors:
 from __future__ import annotations
 
 import copy
-import json
 
+from nbformat import _json
 from .nbbase import from_dict
 from .rwbase import NotebookReader, NotebookWriter, rejoin_lines, restore_bytes, split_lines
 
@@ -28,14 +28,7 @@ from .rwbase import NotebookReader, NotebookWriter, rejoin_lines, restore_bytes,
 # -----------------------------------------------------------------------------
 
 
-class BytesEncoder(json.JSONEncoder):
-    """A JSON encoder that accepts b64 (and other *ascii*) bytestrings."""
-
-    def default(self, obj):
-        """The default value of an object."""
-        if isinstance(obj, bytes):
-            return obj.decode("ascii")
-        return json.JSONEncoder.default(self, obj)
+BytesEncoder = _json.BytesEncoder
 
 
 class JSONReader(NotebookReader):
@@ -43,7 +36,7 @@ class JSONReader(NotebookReader):
 
     def reads(self, s, **kwargs):
         """Convert a string to a notebook."""
-        nb = json.loads(s, **kwargs)
+        nb = _json.loads(s, **kwargs)
         nb = self.to_notebook(nb, **kwargs)
         return nb  # noqa: RET504
 
@@ -62,7 +55,7 @@ class JSONWriter(NotebookWriter):
         kwargs["sort_keys"] = True
         if kwargs.pop("split_lines", True):
             nb = split_lines(copy.deepcopy(nb))
-        return json.dumps(nb, **kwargs)
+        return _json.dumps(nb, **kwargs)
 
 
 _reader = JSONReader()
