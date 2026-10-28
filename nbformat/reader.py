@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 
+from ._notebook_utils import get_version
 from .validator import ValidationError
 
 
@@ -27,23 +28,6 @@ def parse_json(s, **kwargs):
 
 
 # High level API
-
-
-def get_version(nb):
-    """Get the version of a notebook.
-
-    Parameters
-    ----------
-    nb : dict
-        NotebookNode or dict containing notebook data.
-
-    Returns
-    -------
-    Tuple containing major (int) and minor (int) version numbers
-    """
-    major = nb.get("nbformat", 1)
-    minor = nb.get("nbformat_minor", 0)
-    return (major, minor)
 
 
 def reads(s, **kwargs):

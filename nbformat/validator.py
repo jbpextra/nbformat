@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from ._imports import import_item
+from ._notebook_utils import get_version
 from .corpus.words import generate_corpus_id
 from .json_compat import ValidationError, _validator_for_name, get_current_validator
-from .reader import get_version
 from .warnings import DuplicateCellId, MissingIDFieldWarning
 
 validators: dict[tuple[str, int | None, int | None, bool], Any] = {}
@@ -195,7 +195,7 @@ class NotebookValidationError(ValidationError):  # type:ignore[misc]
         return getattr(self.original, key)
 
     def __unicode__(self):
-        """Custom str for validation errors
+        """Custom str for validation tracebacks
 
         avoids dumping full schema and notebook to logs
         """
@@ -330,7 +330,7 @@ def _normalize(
     This function attempts to normalize the `nbdict` passed to it.
 
     As `_normalize()` is currently used both in `validate()` (for
-    historical reasons), and in the `normalize()` public function,
+    historical reasons), and in the public `normalize()` function,
     `_normalize()` does currently mutate `nbdict`.
     Ideally, once `validate()` stops calling `_normalize()`, `_normalize()`
     may stop mutating `nbdict`.
@@ -407,7 +407,6 @@ def validate(
     version_minor : int
     relax_add_props : bool
         Whether to allow extra properties in the JSON schema validating the notebook.
-        When True, all known fields are validated, but unknown fields are ignored.
     nbjson
 
     Returns
